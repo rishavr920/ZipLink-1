@@ -10,9 +10,29 @@ const logger = require('../utils/logger');
 const BASE_URL = process.env.BASE_URL || 'http://localhost';
 
 exports.shortenUrl = async (req, res) => {
+    const { longUrl, password, isOneTime, expiryHours } = req.body;
+
     try {
-        const { longUrl, password, isOneTime, expiryHours } = req.body;
-        
+        // ✅ PRE-CHECK before generating new short code
+const existing = await Url.findOne({
+    originalUrl: longUrl,
+    isOneTime: !!isOneTime,
+    password: null
+});
+
+if (existing) {
+    return res.status(200).json({
+        originalUrl: existing.originalUrl,
+        shortUrl: `${BASE_URL}/${existing.shortCode}`,
+        shortCode: existing.shortCode,
+        qrCode: existing.qrCode,
+        expiresAt: existing.expiresAt,
+        isPasswordProtected: !!existing.password,
+        isOneTime: existing.isOneTime,
+        message: "Existing short link returned"
+    });
+}
+
         // 1. Get Unique ID using Snowflake algorithm
         // Snowflake generates IDs locally with no coordination needed
         // Each ID contains: timestamp + worker ID + sequence
@@ -38,8 +58,13 @@ exports.shortenUrl = async (req, res) => {
         const newUrl = await Url.create(urlData);
         
         // 3. Cache the mapping for 1 hour if no password
-        if (!password) {
-            await redis.set(shortCode, longUrl, 'EX', 3600);
+        if (!password && !isOneTime) {
+            const ttl = expiryHours? expiryHours * 3600 : 3600;
+            await redis.set(shortCode, 
+                            JSON.stringify({
+                                url: longUrl,
+                                isOneTime: !!isOneTime
+                            }), 'EX', ttl);
         }
 
         logger.info('URL shortened successfully', { 
@@ -61,9 +86,26 @@ exports.shortenUrl = async (req, res) => {
     } catch (err) {
         // Handle duplicate key error (shouldn't happen with Snowflake, but safety check)
         if (err.code === 11000) {
-            return res.status(409).json({ 
-                error: 'Short code collision detected. Please try again.',
-                message: 'This is extremely rare. The system will retry automatically.'
+            const existingUrl = await Url.findOne({
+                                    originalUrl: longUrl,
+                                    isOneTime: !!isOneTime,
+                                    password: null
+                                });
+
+    
+            if (!existingUrl) throw err;
+
+            const shortUrl = `${BASE_URL}/${existingUrl.shortCode}`;
+
+            return res.status(200).json({
+                originalUrl: existingUrl.originalUrl,
+                shortUrl,
+                shortCode: existingUrl.shortCode,
+                qrCode: existingUrl.qrCode,
+                expiresAt: existingUrl.expiresAt,
+                isPasswordProtected: !!existingUrl.password,
+                isOneTime: existingUrl.isOneTime,
+                message: "Existing short link retrieved"
             });
         }
         
@@ -94,9 +136,11 @@ exports.redirect = async (req, res) => {
         // 1. Check Redis Cache (only for non-password protected URLs)
         const cached = await redis.get(code);
         if (cached) {
+            const cach = JSON.parse(cached);
             // Update click count in background (fire and forget)
-            Url.findOneAndUpdate({ shortCode: code }, { $inc: { clicks: 1 } }).catch(() => {});
-            return res.redirect(cached);
+Url.updateOne({ shortCode: code }, { $inc: { clicks: 1 } })
+                .catch(() => {});
+            return res.redirect(cach.url);
         }
 
         // 2. Database Fallback
@@ -134,7 +178,7 @@ exports.redirect = async (req, res) => {
             await redis.del(code);
         } else {
             // Update click count
-            await Url.findOneAndUpdate({ _id: url._id }, { $inc: { clicks: 1 } });
+await Url.updateOne({ _id: url._id }, { $inc: { clicks: 1 } });
         }
 
         // 6. Cache for future requests (if not one-time)
@@ -142,18 +186,26 @@ exports.redirect = async (req, res) => {
             const ttl = url.expiresAt 
                 ? Math.floor((url.expiresAt - Date.now()) / 1000)
                 : 3600; // Default 1 hour
-            if (ttl > 0) {
-                await redis.set(code, url.originalUrl, 'EX', ttl);
-            }
+            if (ttl > 5) {
+await redis.set(
+                    code,
+                    JSON.stringify({
+                        url: url.originalUrl,
+                        isOneTime: false
+                    }),
+                    'EX',
+                    ttl
+                );            }
         }
 
         logger.info('URL redirect successful', { 
             shortCode: code, 
-            isOneTime: url.isOneTime,
-            clicks: url.clicks + 1
+            
         });
         res.redirect(url.originalUrl);
     } catch (err) {
+           const code = req.params?.code;
+
         logger.error('Redirect failed', { 
             error: err.message, 
             stack: err.stack,
@@ -173,11 +225,13 @@ exports.getRedirectInfo = async (req, res) => {
         // Check Redis Cache (only for non-password protected URLs)
         const cached = await redis.get(code);
         if (cached) {
+            const parsed = JSON.parse(cached);
+
             // Update click count in background (fire and forget)
             Url.findOneAndUpdate({ shortCode: code }, { $inc: { clicks: 1 } }).catch(() => {});
             return res.json({
                 redirect: true,
-                url: cached
+                url: parsed.url
             });
         }
 
@@ -208,36 +262,37 @@ exports.getRedirectInfo = async (req, res) => {
             });
         }
 
-        // Handle One-Time links
-        if (url.isOneTime) {
-            await Url.deleteOne({ _id: url._id });
-            await redis.del(code);
-        } else {
-            // Update click count
-            await Url.findOneAndUpdate({ _id: url._id }, { $inc: { clicks: 1 } });
-        }
+        // // Handle One-Time links
+        // if (url.isOneTime) {
+        //     await Url.deleteOne({ _id: url._id });
+        //     await redis.del(code);
+        // } else {
+        //     // Update click count
+        //     await Url.findOneAndUpdate({ _id: url._id }, { $inc: { clicks: 1 } });
+        // }
 
         // Cache for future requests (if not one-time)
-        if (!url.isOneTime) {
-            const ttl = url.expiresAt 
-                ? Math.floor((url.expiresAt - Date.now()) / 1000)
-                : 3600; // Default 1 hour
-            if (ttl > 0) {
-                await redis.set(code, url.originalUrl, 'EX', ttl);
-            }
-        }
+        // if (!url.isOneTime) {
+        //     const ttl = url.expiresAt 
+        //         ? Math.floor((url.expiresAt - Date.now()) / 1000)
+        //         : 3600; // Default 1 hour
+        //     if (ttl > 0) {
+        //         await redis.set(code, url.originalUrl, 'EX', ttl);
+        //     }
+        // }
 
-        logger.info('URL redirect info retrieved', { 
-            shortCode: code, 
-            isOneTime: url.isOneTime,
-            clicks: url.clicks + 1
-        });
+        // logger.info('URL redirect info retrieved', { 
+        //     shortCode: code, 
+        //     isOneTime: url.isOneTime,
+        // });
         
         return res.json({
             redirect: true,
             url: url.originalUrl
         });
     } catch (err) {
+           const code = req.params?.code;
+
         logger.error('Get redirect info failed', { 
             error: err.message, 
             stack: err.stack,
@@ -255,7 +310,24 @@ exports.verifyPassword = async (req, res) => {
         const { code } = req.params;
         const { password } = req.body;
 
+        // ✅ FIX: basic rate limiting for brute force
+        const ip = req.ip;
+        const attemptsKey = `pw_attempts:${code}:${ip}`;
+        const attempts = await redis.incr(attemptsKey);
+
+        if (attempts === 1) {
+            await redis.expire(attemptsKey, 60); // 1 min window
+        }
+
+        if (attempts > 5) {
+            return res.status(429).json({
+                error: "Too many attempts. Try again later."
+            });
+        }
+
+
         const url = await Url.findOne({ shortCode: code });
+        
         if (!url) {
             return res.status(404).json({ 
                 error: 'Link not found',
@@ -287,6 +359,9 @@ exports.verifyPassword = async (req, res) => {
                 message: 'The password you entered is incorrect.'
             });
         }
+        // success reset attempts
+        await redis.del(attemptsKey);
+
 
         // Password correct - return the original URL
         // Handle one-time links
@@ -305,6 +380,8 @@ exports.verifyPassword = async (req, res) => {
             isOneTime: url.isOneTime
         });
     } catch (err) {
+           const code = req.params?.code;
+
         logger.error('Password verification failed', { 
             error: err.message, 
             stack: err.stack,

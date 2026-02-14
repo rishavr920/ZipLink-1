@@ -50,9 +50,8 @@ function getCurrentTimestamp() {
     return Date.now() - EPOCH;
 }
 
-/**
- * Wait until next millisecond
- */
+// wait until next millisecond
+
 function waitNextMillisecond(lastTimestamp) {
     let timestamp = getCurrentTimestamp();
     while (timestamp <= lastTimestamp) {
@@ -61,11 +60,8 @@ function waitNextMillisecond(lastTimestamp) {
     return timestamp;
 }
 
-/**
- * Generate next Snowflake ID
- * 
- * @returns {number} 64-bit unique ID
- */
+
+// generating next Snowflake ID ,64-bit unique ID 
 function generateId() {
     let timestamp = getCurrentTimestamp();
 

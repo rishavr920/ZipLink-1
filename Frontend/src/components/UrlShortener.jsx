@@ -9,6 +9,7 @@ const UrlShortener = () => {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  
   // Use empty string to use relative URLs (works with nginx proxy)
   const API_URL = import.meta.env.VITE_API_URL || '';
   const BASE_URL = import.meta.env.VITE_BASE_URL || window.location.origin;

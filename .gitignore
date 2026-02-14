@@ -1,0 +1,4 @@
+.env
+Frontend/.env
+Backend/.env
+.DS_Store

@@ -1,16 +1,7 @@
-/**
- * ID Generator - Snowflake Implementation
- * 
- * Uses Twitter's Snowflake algorithm for distributed ID generation.
- * No coordination needed - each server generates IDs independently.
- */
-
 const { generateId, initSnowflake } = require('./snowflake');
 const logger = require('../utils/logger');
 
-/**
- * Initialize the ID generator
- */
+// Initialize the ID generator
 async function initIdGenerator() {
     try {
         initSnowflake();
