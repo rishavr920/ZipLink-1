@@ -1,5 +1,11 @@
 const winston = require('winston');
 const path = require('path');
+const fs = require('fs');
+
+const logsDir = path.join(__dirname, '../../logs');
+if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+}
 
 // Define log format
 const logFormat = winston.format.combine(
@@ -22,48 +28,49 @@ const consoleFormat = winston.format.combine(
     })
 );
 
-// Create logger instance
-const logger = winston.createLogger({
+const transports = [
+    new winston.transports.Console({
+        format: process.env.NODE_ENV === 'production' ? logFormat : consoleFormat
+    })
+];
+
+if (process.env.NODE_ENV !== 'production') {
+    transports.push(
+        new winston.transports.File({
+            filename: path.join(logsDir, 'error.log'),
+            level: 'error',
+            maxsize: 5242880,
+            maxFiles: 5
+        }),
+        new winston.transports.File({
+            filename: path.join(logsDir, 'combined.log'),
+            maxsize: 5242880,
+            maxFiles: 5
+        })
+    );
+}
+
+const loggerConfig = {
     level: process.env.LOG_LEVEL || 'info',
     format: logFormat,
     defaultMeta: { service: 'ziplink-backend' },
-    transports: [
-        // Write all logs to console
-        new winston.transports.Console({
-            format: process.env.NODE_ENV === 'production' ? logFormat : consoleFormat
-        }),
-        // Write all logs with level 'error' and below to error.log
-        new winston.transports.File({
-            filename: path.join(__dirname, '../../logs/error.log'),
-            level: 'error',
-            maxsize: 5242880, // 5MB
-            maxFiles: 5
-        }),
-        // Write all logs to combined.log
-        new winston.transports.File({
-            filename: path.join(__dirname, '../../logs/combined.log'),
-            maxsize: 5242880, // 5MB
-            maxFiles: 5
-        })
-    ],
-    // Handle exceptions and rejections
-    exceptionHandlers: [
-        new winston.transports.File({
-            filename: path.join(__dirname, '../../logs/exceptions.log')
-        })
-    ],
-    rejectionHandlers: [
-        new winston.transports.File({
-            filename: path.join(__dirname, '../../logs/rejections.log')
-        })
-    ]
-});
+    transports
+};
 
-// Create logs directory if it doesn't exist (for development)
-const fs = require('fs');
-const logsDir = path.join(__dirname, '../../logs');
-if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
+if (process.env.NODE_ENV !== 'production') {
+    loggerConfig.exceptionHandlers = [
+        new winston.transports.File({
+            filename: path.join(logsDir, 'exceptions.log')
+        })
+    ];
+    loggerConfig.rejectionHandlers = [
+        new winston.transports.File({
+            filename: path.join(logsDir, 'rejections.log')
+        })
+    ];
 }
+
+// Create logger instance
+const logger = winston.createLogger(loggerConfig);
 
 module.exports = logger;
