@@ -28,8 +28,8 @@ const MAX_WORKER_ID = (1 << WORKER_ID_BITS) - 1; // 1023
 const MAX_SEQUENCE = (1 << SEQUENCE_BITS) - 1; // 4095
 
 // Bit shifts
-const TIMESTAMP_SHIFT = WORKER_ID_BITS + SEQUENCE_BITS; // 22
-const WORKER_ID_SHIFT = SEQUENCE_BITS; // 12
+const TIMESTAMP_SHIFT = BigInt(WORKER_ID_BITS + SEQUENCE_BITS); // 22
+const WORKER_ID_SHIFT = BigInt(SEQUENCE_BITS); // 12
 
 // Get worker ID from environment or use process ID
 // In production, use unique worker ID per server (0-1023)
@@ -92,10 +92,13 @@ function generateId() {
     lastTimestamp = timestamp;
 
     // Generate ID: timestamp (41 bits) + worker ID (10 bits) + sequence (12 bits)
-    const id = (timestamp << TIMESTAMP_SHIFT) | (WORKER_ID << WORKER_ID_SHIFT) | sequence;
+    const id =
+        (BigInt(timestamp) << TIMESTAMP_SHIFT) |
+        (BigInt(WORKER_ID) << WORKER_ID_SHIFT) |
+        BigInt(sequence);
 
     logger.debug('Snowflake ID generated', {
-        id,
+        id: id.toString(),
         timestamp,
         workerId: WORKER_ID,
         sequence,
@@ -112,7 +115,7 @@ function generateId() {
  * @returns {Date} Creation timestamp
  */
 function extractTimestamp(id) {
-    const timestamp = (id >> TIMESTAMP_SHIFT) + EPOCH;
+    const timestamp = Number((BigInt(id) >> TIMESTAMP_SHIFT) + BigInt(EPOCH));
     return new Date(timestamp);
 }
 
@@ -123,7 +126,7 @@ function extractTimestamp(id) {
  * @returns {number} Worker ID
  */
 function extractWorkerId(id) {
-    return (id >> WORKER_ID_SHIFT) & MAX_WORKER_ID;
+    return Number((BigInt(id) >> WORKER_ID_SHIFT) & BigInt(MAX_WORKER_ID));
 }
 
 /**
@@ -133,7 +136,7 @@ function extractWorkerId(id) {
  * @returns {number} Sequence number
  */
 function extractSequence(id) {
-    return id & MAX_SEQUENCE;
+    return Number(BigInt(id) & BigInt(MAX_SEQUENCE));
 }
 
 /**

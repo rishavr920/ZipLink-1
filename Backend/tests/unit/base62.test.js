@@ -17,12 +17,16 @@ describe('Base62 Encoding', () => {
         expect(encode(62)).toBe('10');
     });
 
-    test('should encode 12345 to "dnh"', () => {
-        expect(encode(12345)).toBe('dnh');
+    test('should encode 12345 to "3d7"', () => {
+        expect(encode(12345)).toBe('3d7');
     });
 
     test('should encode large numbers correctly', () => {
         expect(encode(1000000)).toBe('4c92');
+    });
+
+    test('should encode bigint values correctly', () => {
+        expect(encode(62n)).toBe('10');
     });
 
     test('should produce unique encodings for sequential numbers', () => {

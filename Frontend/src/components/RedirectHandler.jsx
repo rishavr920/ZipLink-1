@@ -6,6 +6,7 @@ const RedirectHandler = ({ code }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [requiresPassword, setRequiresPassword] = useState(false);
+  
   // Use window.location.origin to work with nginx proxy
   const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
 
